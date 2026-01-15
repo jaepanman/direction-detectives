@@ -1,0 +1,5 @@
+{
+  "name": "Direction Detective: Town Adventure",
+  "description": "A 3D educational game for Japanese students to practice English directions (Go Straight, Turn Right, Turn Left) using browser-native text-to-speech.",
+  "requestFramePermissions": []
+}
