@@ -2,10 +2,13 @@
 import React from 'react';
 import { ThreeElements } from '@react-three/fiber';
 
-// Fix: Add type augmentation for Three.js elements in JSX to resolve intrinsic element errors
+// Fix: Add type augmentation for Three.js elements in React's JSX namespace. 
+// Augmenting React.JSX ensures we merge with existing HTML elements instead of shadowing the global JSX namespace.
 declare global {
-  namespace JSX {
-    interface IntrinsicElements extends ThreeElements {}
+  namespace React {
+    namespace JSX {
+      interface IntrinsicElements extends ThreeElements {}
+    }
   }
 }
 

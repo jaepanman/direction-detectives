@@ -28,9 +28,11 @@ const App: React.FC = () => {
   // Fallback TTS logic
   const speakFallback = (text: string): Promise<void> => {
     return new Promise((resolve) => {
+      // Cancel any ongoing speech
+      window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'en-US';
-      utterance.rate = 0.8;
+      utterance.rate = 0.9;
       utterance.onend = () => resolve();
       utterance.onerror = () => resolve();
       window.speechSynthesis.speak(utterance);
@@ -50,40 +52,53 @@ const App: React.FC = () => {
       const audio = new Audio(url);
       audio.onended = () => resolve();
       audio.onerror = () => {
-        audioAvailability.current[direction] = false; // Mark as unavailable for future
-        speakFallback(phrase).then(resolve);
-      };
-      audio.play().catch(() => {
+        console.warn(`Audio failed for ${direction}, falling back to TTS`);
         audioAvailability.current[direction] = false;
         speakFallback(phrase).then(resolve);
-      });
+      };
+      
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => {
+          audioAvailability.current[direction] = false;
+          speakFallback(phrase).then(resolve);
+        });
+      }
     });
   };
 
-  // Play sequence of directions
   const playSequence = async (commands: Direction[]) => {
     for (const cmd of commands) {
       await playAudioWithFallback(cmd);
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 600));
     }
   };
 
-  // Check if audio files exist during loading phase
   const checkAudioFiles = async () => {
     const directions = [Direction.STRAIGHT, Direction.LEFT, Direction.RIGHT];
     const checks = directions.map(dir => {
       return new Promise<void>((resolve) => {
-        const audio = new Audio(AUDIO_FILES[dir]);
-        audio.oncanplaythrough = () => {
-          audioAvailability.current[dir] = true;
-          resolve();
-        };
-        audio.onerror = () => {
+        const audio = new Audio();
+        // Use a small timeout for the network check
+        const timer = setTimeout(() => {
           audioAvailability.current[dir] = false;
           resolve();
-        };
-        // Timeout check for files that never respond
-        setTimeout(resolve, 1000);
+        }, 1500);
+
+        audio.addEventListener('canplaythrough', () => {
+          clearTimeout(timer);
+          audioAvailability.current[dir] = true;
+          resolve();
+        }, { once: true });
+
+        audio.addEventListener('error', () => {
+          clearTimeout(timer);
+          audioAvailability.current[dir] = false;
+          resolve();
+        }, { once: true });
+
+        audio.src = AUDIO_FILES[dir];
+        audio.load();
       });
     });
     await Promise.all(checks);
@@ -123,10 +138,10 @@ const App: React.FC = () => {
     setCurrentStep(0);
     setMovesMadeInStep(0);
 
-    // Run sound check and visual settle in parallel
+    // parallel check
     await Promise.all([
         checkAudioFiles(),
-        new Promise(r => setTimeout(r, 1500)) // "Wait until player at full stop"
+        new Promise(r => setTimeout(r, 2000)) // ensure 3D scene settles
     ]);
 
     setIsPreloadingLevel(false);

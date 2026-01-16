@@ -3,13 +3,20 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Direction Detective</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <style>
-    body { margin: 0; overflow: hidden; background-color: #f0fdf4; font-family: 'Comic Sans MS', 'Chalkboard SE', 'Arial', sans-serif; }
+    body { 
+      margin: 0; 
+      overflow: hidden; 
+      background-color: #f0fdf4; 
+      font-family: 'Comic Sans MS', 'Chalkboard SE', 'Arial', sans-serif; 
+      touch-action: none;
+    }
     canvas { display: block; }
+    #root { width: 100vw; height: 100vh; }
   </style>
 <script type="importmap">
 {
@@ -27,5 +34,7 @@
 </head>
 <body>
   <div id="root"></div>
+  <!-- This line was missing! It tells the browser to start the app -->
+  <script type="module" src="./index.tsx"></script>
 </body>
 </html>
