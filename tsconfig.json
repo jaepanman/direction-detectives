@@ -16,15 +16,14 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "types": ["node"]
+    "types": []
   },
   "include": [
     "index.tsx", 
     "App.tsx", 
     "types.ts", 
     "constants.ts", 
-    "components/**/*",
-    "vite.config.ts"
+    "components/**/*"
   ],
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist", "vite.config.ts"]
 }
