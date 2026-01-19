@@ -1,4 +1,3 @@
-
 {
   "name": "direction-detective",
   "private": true,
@@ -17,7 +16,7 @@
     "three": "^0.182.0"
   },
   "devDependencies": {
-    "@types/node": "^22.11.25",
+    "@types/node": "^22.10.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/three": "^0.170.0",
