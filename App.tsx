@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Town from './components/Town';
 import { Direction, GameStatus, Position } from './types';
@@ -18,28 +17,24 @@ const App: React.FC = () => {
   const [isPreloadingLevel, setIsPreloadingLevel] = useState(true);
   const [isReplaying, setIsReplaying] = useState(false);
 
-  // Track if MP3s are actually available
   const audioAvailability = useRef<Record<Direction, boolean>>({
     [Direction.STRAIGHT]: false,
     [Direction.LEFT]: false,
     [Direction.RIGHT]: false
   });
 
-  // Fallback TTS logic
   const speakFallback = (text: string): Promise<void> => {
     return new Promise((resolve) => {
-      // Cancel any ongoing speech
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'en-US';
-      utterance.rate = 0.9;
+      utterance.rate = 0.8;
       utterance.onend = () => resolve();
       utterance.onerror = () => resolve();
       window.speechSynthesis.speak(utterance);
     });
   };
 
-  // Improved audio player with fallback
   const playAudioWithFallback = async (direction: Direction): Promise<void> => {
     const url = AUDIO_FILES[direction];
     const phrase = DIRECTION_PHRASES[direction];
@@ -52,7 +47,6 @@ const App: React.FC = () => {
       const audio = new Audio(url);
       audio.onended = () => resolve();
       audio.onerror = () => {
-        console.warn(`Audio failed for ${direction}, falling back to TTS`);
         audioAvailability.current[direction] = false;
         speakFallback(phrase).then(resolve);
       };
@@ -79,7 +73,6 @@ const App: React.FC = () => {
     const checks = directions.map(dir => {
       return new Promise<void>((resolve) => {
         const audio = new Audio();
-        // Use a small timeout for the network check
         const timer = setTimeout(() => {
           audioAvailability.current[dir] = false;
           resolve();
@@ -109,7 +102,7 @@ const App: React.FC = () => {
     setStatus(GameStatus.START);
     
     const config = LEVEL_CONFIGS.find(c => c.id === lvl) || LEVEL_CONFIGS[0];
-    const totalCommands = config.commandCountPerStep * config.totalSteps;
+    const totalCommands = config.totalSteps; // Simplified generation
     const path: Direction[] = [];
     
     let simX = 0;
@@ -138,10 +131,9 @@ const App: React.FC = () => {
     setCurrentStep(0);
     setMovesMadeInStep(0);
 
-    // parallel check
     await Promise.all([
         checkAudioFiles(),
-        new Promise(r => setTimeout(r, 2000)) // ensure 3D scene settles
+        new Promise(r => setTimeout(r, 1500))
     ]);
 
     setIsPreloadingLevel(false);
@@ -169,22 +161,8 @@ const App: React.FC = () => {
     setStatus(GameStatus.MOVING);
   };
 
-  const replayStepAudio = async () => {
-    if (isReplaying || status !== GameStatus.MOVING) return;
-    setIsReplaying(true);
-    await playSequence(commandsForCurrentStep);
-    setIsReplaying(false);
-  };
-
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+  const executeMove = (inputDir: Direction) => {
     if (status !== GameStatus.MOVING) return;
-
-    let inputDir: Direction | null = null;
-    if (e.key === 'ArrowUp') inputDir = Direction.STRAIGHT;
-    else if (e.key === 'ArrowLeft') inputDir = Direction.LEFT;
-    else if (e.key === 'ArrowRight') inputDir = Direction.RIGHT;
-
-    if (!inputDir) return;
 
     const expectedMove = commandsForCurrentStep[movesMadeInStep];
 
@@ -217,6 +195,12 @@ const App: React.FC = () => {
     } else {
       setStatus(GameStatus.FAIL);
     }
+  };
+
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'ArrowUp') executeMove(Direction.STRAIGHT);
+    else if (e.key === 'ArrowLeft') executeMove(Direction.LEFT);
+    else if (e.key === 'ArrowRight') executeMove(Direction.RIGHT);
   }, [status, commandsForCurrentStep, movesMadeInStep, level, currentStep]);
 
   useEffect(() => {
@@ -224,147 +208,140 @@ const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
+  const replayStepAudio = async () => {
+    if (isReplaying || status !== GameStatus.MOVING) return;
+    setIsReplaying(true);
+    await playSequence(commandsForCurrentStep);
+    setIsReplaying(false);
+  };
+
   const nextLevel = () => {
     if (level < 3) setLevel(prev => prev + 1);
     else setLevel(1);
   };
 
-  const restartLevel = () => {
-    generateLevel(level);
-  };
-
   const currentConfig = LEVEL_CONFIGS.find(c => c.id === level)!;
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden select-none bg-[#f0fdf4]">
+    <div className="relative w-screen h-screen overflow-hidden select-none bg-[#f0fdf4] font-sans">
       <Town playerPos={playerPos} targetPos={targetPos} status={status} />
 
-      {/* Progress UI */}
-      <div className="absolute top-0 left-0 w-full p-6 flex justify-between items-start pointer-events-none">
-        <div className="bg-white/95 p-4 rounded-2xl shadow-xl border-4 border-green-500 pointer-events-auto min-w-[200px]">
-          <h1 className="text-2xl font-black text-green-700 flex items-center justify-between">
-            Level {level}
-            <span className="text-sm font-bold bg-green-100 px-2 py-1 rounded-lg">Step {currentStep + 1}/{currentConfig.totalSteps}</span>
-          </h1>
-          <div className="w-full bg-gray-200 h-3 rounded-full mt-3 overflow-hidden border border-gray-300">
+      {/* Stats UI */}
+      <div className="absolute top-4 left-4 pointer-events-none">
+        <div className="bg-white/90 p-4 rounded-3xl shadow-xl border-4 border-green-500 min-w-[180px] pointer-events-auto">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-2xl">🌟</span>
+            <span className="text-xl font-black text-green-700">Level {level}</span>
+          </div>
+          <div className="text-xs font-bold text-green-600 uppercase tracking-widest mb-2">
+            Step {currentStep + 1} of {currentConfig.totalSteps}
+          </div>
+          <div className="w-full bg-gray-200 h-3 rounded-full overflow-hidden border border-gray-300">
             <div 
               className="bg-green-500 h-full transition-all duration-500" 
               style={{ width: `${((currentStep) / currentConfig.totalSteps) * 100}%` }}
             />
           </div>
-          <p className="text-xs text-gray-500 mt-2 font-bold uppercase tracking-wider">Goal: Red House</p>
-        </div>
-
-        <div className="flex flex-col gap-3 pointer-events-auto">
-          {status === GameStatus.MOVING && (
-            <button 
-              onClick={replayStepAudio}
-              disabled={isReplaying}
-              className={`bg-white/95 p-4 rounded-2xl shadow-xl border-4 border-blue-500 flex flex-col items-center transition-all active:scale-95 ${isReplaying ? 'opacity-50 grayscale' : 'hover:bg-blue-50'}`}
-              title="Listen Again"
-            >
-              <div className={`text-2xl text-blue-600 ${isReplaying ? 'animate-bounce' : ''}`}>
-                <i className="fas fa-volume-up"></i>
-              </div>
-              <span className="text-[10px] text-blue-800 font-black uppercase mt-1">Listen Again</span>
-            </button>
-          )}
-
-          <div className="bg-white/95 p-4 rounded-2xl shadow-xl border-4 border-blue-500 flex flex-col items-center">
-            <div className="flex gap-2 mb-1">
-              <kbd className="px-2 py-1 bg-gray-100 rounded border-b-4 border-gray-400 font-bold text-sm">↑</kbd>
-              <kbd className="px-2 py-1 bg-gray-100 rounded border-b-4 border-gray-400 font-bold text-sm">←</kbd>
-              <kbd className="px-2 py-1 bg-gray-100 rounded border-b-4 border-gray-400 font-bold text-sm">→</kbd>
-            </div>
-            <span className="text-[10px] text-blue-800 font-black uppercase">Move / Turn</span>
-          </div>
         </div>
       </div>
 
-      {/* Loading Screen Overlay */}
-      {isPreloadingLevel && (
-        <div className="absolute inset-0 bg-white/95 backdrop-blur-md flex flex-col items-center justify-center z-50 pointer-events-auto">
-          <div className="relative w-24 h-24 mb-6">
-            <div className="absolute inset-0 border-8 border-gray-200 rounded-full"></div>
-            <div className="absolute inset-0 border-8 border-green-500 rounded-full border-t-transparent animate-spin"></div>
-          </div>
-          <h3 className="text-4xl font-black text-green-800 tracking-widest uppercase italic mb-2">Town Explorer</h3>
-          <p className="text-lg text-green-600 font-bold uppercase tracking-widest animate-pulse">
-            Checking sounds & path...
-          </p>
-          <p className="text-xs text-gray-400 mt-8 uppercase font-bold tracking-[0.2em]">Preparing the adventure</p>
+      {/* On-Screen Controls */}
+      {status === GameStatus.MOVING && (
+        <div className="absolute bottom-8 left-0 w-full flex justify-center gap-4 px-4">
+          <button 
+            onClick={() => executeMove(Direction.LEFT)}
+            className="w-24 h-24 bg-blue-500 rounded-3xl border-b-8 border-blue-700 flex flex-col items-center justify-center active:translate-y-2 active:border-b-0 transition-all text-white"
+          >
+            <i className="fas fa-arrow-left text-3xl mb-1"></i>
+            <span className="text-[10px] font-black uppercase">Turn Left</span>
+            <span className="text-[8px] opacity-80 italic">Hidari</span>
+          </button>
+          
+          <button 
+            onClick={() => executeMove(Direction.STRAIGHT)}
+            className="w-28 h-28 bg-green-500 rounded-3xl border-b-8 border-green-700 flex flex-col items-center justify-center active:translate-y-2 active:border-b-0 transition-all text-white"
+          >
+            <i className="fas fa-arrow-up text-4xl mb-1"></i>
+            <span className="text-xs font-black uppercase">Straight</span>
+            <span className="text-[10px] opacity-80 italic">Massugu</span>
+          </button>
+          
+          <button 
+            onClick={() => executeMove(Direction.RIGHT)}
+            className="w-24 h-24 bg-blue-500 rounded-3xl border-b-8 border-blue-700 flex flex-col items-center justify-center active:translate-y-2 active:border-b-0 transition-all text-white"
+          >
+            <i className="fas fa-arrow-right text-3xl mb-1"></i>
+            <span className="text-[10px] font-black uppercase">Turn Right</span>
+            <span className="text-[8px] opacity-80 italic">Migi</span>
+          </button>
         </div>
       )}
 
-      {/* Overlays */}
+      {/* Listen Again Button */}
+      {status === GameStatus.MOVING && (
+        <button 
+          onClick={replayStepAudio}
+          disabled={isReplaying}
+          className={`absolute top-4 right-4 w-20 h-20 bg-yellow-400 rounded-full border-b-4 border-yellow-600 flex flex-col items-center justify-center active:scale-95 transition-all ${isReplaying ? 'opacity-50 animate-pulse' : ''}`}
+        >
+          <i className="fas fa-volume-up text-2xl text-yellow-900"></i>
+          <span className="text-[8px] font-black uppercase text-yellow-900 mt-1">Listen</span>
+        </button>
+      )}
+
+      {/* Loading Overlay */}
+      {isPreloadingLevel && (
+        <div className="absolute inset-0 bg-green-50 flex flex-col items-center justify-center z-50">
+          <div className="w-20 h-20 border-8 border-green-200 border-t-green-600 rounded-full animate-spin mb-4"></div>
+          <h2 className="text-2xl font-black text-green-800 uppercase italic tracking-widest">Building Town...</h2>
+        </div>
+      )}
+
+      {/* Game State Overlays */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
         {status === GameStatus.START && !isPreloadingLevel && (
-          <div className="bg-white p-10 rounded-[40px] shadow-2xl border-8 border-yellow-400 text-center pointer-events-auto max-w-sm transform hover:scale-105 transition-transform">
-            <div className="text-6xl mb-4">🏠</div>
-            <h2 className="text-5xl font-black text-yellow-600 mb-2 uppercase italic">Ready?</h2>
-            <p className="text-lg text-gray-600 mb-8 font-bold leading-tight">
-              Listen to the directions.<br/>Reach the red house in {currentConfig.totalSteps} steps!
-            </p>
+          <div className="bg-white p-10 rounded-[50px] shadow-2xl border-8 border-yellow-400 text-center pointer-events-auto scale-animation">
+            <div className="text-6xl mb-4">🗺️</div>
+            <h2 className="text-4xl font-black text-yellow-600 mb-2 italic">READY?</h2>
+            <p className="text-gray-600 mb-6 font-bold">Listen to the directions and find the Red House!</p>
             <button 
               onClick={startStep}
-              disabled={loading || isPreloadingLevel}
-              className="bg-yellow-500 hover:bg-yellow-400 text-white font-black py-5 px-12 rounded-full text-3xl transition transform active:scale-95 shadow-[0_10px_0_rgb(202,138,4)] disabled:opacity-50"
+              className="bg-yellow-500 text-white font-black py-4 px-12 rounded-full text-2xl shadow-[0_8px_0_rgb(180,130,0)] active:translate-y-2 active:shadow-none transition-all"
             >
-              GO!
+              START
             </button>
           </div>
         )}
 
         {status === GameStatus.LISTENING && (
-          <div className="bg-white/95 p-12 rounded-[50px] shadow-2xl flex flex-col items-center border-4 border-blue-400 animate-pulse">
-            <div className="text-8xl text-blue-500 mb-6 drop-shadow-lg">
-              <i className="fas fa-volume-up"></i>
-            </div>
-            <p className="text-4xl font-black text-blue-800 tracking-tighter uppercase italic">Listening...</p>
-            <p className="text-xl text-blue-400 mt-2 font-black uppercase tracking-widest">Pay Attention!</p>
+          <div className="bg-white/90 p-10 rounded-full shadow-2xl border-4 border-blue-400 animate-pulse flex flex-col items-center">
+            <i className="fas fa-ear-listen text-6xl text-blue-500 mb-2"></i>
+            <span className="text-3xl font-black text-blue-800 uppercase italic">Listening...</span>
           </div>
         )}
 
-        {status === GameStatus.MOVING && movesMadeInStep < commandsForCurrentStep.length && (
-           <div className="absolute bottom-20 flex flex-col items-center">
-              <div className="bg-white/90 px-8 py-4 rounded-full shadow-2xl border-4 border-blue-500 flex gap-4">
-                {Array.from({ length: commandsForCurrentStep.length }).map((_, i) => (
-                  <div 
-                    key={i} 
-                    className={`w-10 h-10 rounded-full flex items-center justify-center text-xl font-black border-2 transition-all ${
-                      i < movesMadeInStep ? 'bg-green-500 border-green-700 text-white' : 'bg-gray-200 border-gray-400 text-gray-400'
-                    }`}
-                  >
-                    {i < movesMadeInStep ? '✓' : '?'}
-                  </div>
-                ))}
-              </div>
-              <p className="mt-4 text-white font-black text-2xl drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] uppercase italic">Your turn to move!</p>
-           </div>
-        )}
-
         {status === GameStatus.SUCCESS && (
-          <div className="bg-white p-12 rounded-[50px] shadow-2xl border-8 border-green-400 text-center pointer-events-auto animate-bounce">
-            <div className="text-8xl mb-4">🏆</div>
-            <h2 className="text-5xl font-black text-green-600 mb-2 uppercase italic">PERFECT!</h2>
-            <p className="text-xl text-gray-600 mb-8 font-bold">You arrived at the house safely!</p>
+          <div className="bg-white p-10 rounded-[50px] shadow-2xl border-8 border-green-400 text-center pointer-events-auto">
+            <div className="text-7xl mb-4">🥇</div>
+            <h2 className="text-4xl font-black text-green-600 mb-2">AMAZING!</h2>
+            <p className="text-gray-500 mb-6 font-bold">You reached the house!</p>
             <button 
               onClick={nextLevel}
-              className="bg-green-500 hover:bg-green-400 text-white font-black py-5 px-14 rounded-full text-3xl transition transform active:scale-95 shadow-[0_10px_0_rgb(22,101,52)]"
+              className="bg-green-500 text-white font-black py-4 px-12 rounded-full text-2xl shadow-[0_8px_0_rgb(20,100,20)] active:translate-y-2 active:shadow-none transition-all"
             >
-              LEVEL {level === 3 ? 1 : level + 1}
+              NEXT LEVEL
             </button>
           </div>
         )}
 
         {status === GameStatus.FAIL && (
-          <div className="bg-white p-10 rounded-[40px] shadow-2xl border-8 border-red-400 text-center pointer-events-auto">
-            <div className="text-8xl mb-4 text-red-500">❌</div>
-            <h2 className="text-5xl font-black text-red-600 mb-2 uppercase italic">WRONG WAY!</h2>
-            <p className="text-xl text-gray-600 mb-8 font-bold italic">Listen carefully and try again.</p>
+          <div className="bg-white p-10 rounded-[50px] shadow-2xl border-8 border-red-400 text-center pointer-events-auto">
+            <div className="text-7xl mb-4">🌀</div>
+            <h2 className="text-4xl font-black text-red-600 mb-2">OH NO!</h2>
+            <p className="text-gray-500 mb-6 font-bold">Listen carefully and try again!</p>
             <button 
-              onClick={restartLevel}
-              className="bg-red-500 hover:bg-red-400 text-white font-black py-5 px-14 rounded-full text-3xl transition transform active:scale-95 shadow-[0_10px_0_rgb(153,27,27)]"
+              onClick={() => generateLevel(level)}
+              className="bg-red-500 text-white font-black py-4 px-12 rounded-full text-2xl shadow-[0_8px_0_rgb(150,20,20)] active:translate-y-2 active:shadow-none transition-all"
             >
               RETRY
             </button>
@@ -372,9 +349,14 @@ const App: React.FC = () => {
         )}
       </div>
 
-      <div className="absolute bottom-4 right-4 pointer-events-none opacity-40 text-white font-black italic text-xl uppercase tracking-tighter">
-        Direction Detective
-      </div>
+      <style>{`
+        @keyframes scale-animation {
+          0% { transform: scale(1); }
+          50% { transform: scale(1.05); }
+          100% { transform: scale(1); }
+        }
+        .scale-animation { animation: scale-animation 2s infinite ease-in-out; }
+      `}</style>
     </div>
   );
 };
