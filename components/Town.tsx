@@ -7,13 +7,11 @@ import Building from './Building';
 import { Position, GameStatus } from '../types';
 import { GRID_SIZE } from '../constants';
 
-// Fix: Add type augmentation for Three.js elements in React's JSX namespace. 
-// Augmenting React.JSX ensures we merge with existing HTML elements instead of shadowing the global JSX namespace.
+// Fix: Augment the global JSX namespace directly. 
+// Modern React/TS setups (especially Vite) often look for IntrinsicElements in the global JSX namespace.
 declare global {
-  namespace React {
-    namespace JSX {
-      interface IntrinsicElements extends ThreeElements {}
-    }
+  namespace JSX {
+    interface IntrinsicElements extends ThreeElements {}
   }
 }
 
