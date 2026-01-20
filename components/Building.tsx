@@ -2,11 +2,13 @@
 import React from 'react';
 import { ThreeElements } from '@react-three/fiber';
 
-// Fix: Augment the global JSX namespace directly. 
-// Modern React/TS setups (especially Vite) often look for IntrinsicElements in the global JSX namespace.
+// Fix: Augment the React.JSX namespace to include Three.js elements.
+// Modern React (18+) and tools like Vite typically look for intrinsic elements in the React.JSX namespace.
 declare global {
-  namespace JSX {
-    interface IntrinsicElements extends ThreeElements {}
+  namespace React {
+    namespace JSX {
+      interface IntrinsicElements extends ThreeElements {}
+    }
   }
 }
 
