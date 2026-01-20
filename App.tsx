@@ -94,7 +94,10 @@ const App: React.FC = () => {
     const path: Direction[] = [];
     let simX = 0, simZ = 0, simRot = 0;
 
-    for (let i = 0; i < config.totalSteps; i++) {
+    // FIX: Generate enough moves for ALL steps (steps * commands per step)
+    const totalMovesNeeded = config.totalSteps * config.commandCountPerStep;
+
+    for (let i = 0; i < totalMovesNeeded; i++) {
       const possible: Direction[] = [Direction.STRAIGHT, Direction.STRAIGHT, Direction.LEFT, Direction.RIGHT];
       const move = possible[Math.floor(Math.random() * possible.length)];
       path.push(move);
@@ -107,7 +110,11 @@ const App: React.FC = () => {
     }
 
     setFullPath(path);
-    setTargetPos({ x: Math.round(simX) + 2.5, z: Math.round(simZ) + 2.5 });
+    // Standardize to grid coordinate then add offset to center in a building lot
+    const finalX = Math.round(simX / GRID_SIZE) * GRID_SIZE;
+    const finalZ = Math.round(simZ / GRID_SIZE) * GRID_SIZE;
+    setTargetPos({ x: finalX + 2.5, z: finalZ + 2.5 });
+    
     setPlayerPos({ x: 0, z: 0, rotation: 0 });
     setCurrentStep(0);
     setMovesMadeInStep(0);
@@ -117,12 +124,14 @@ const App: React.FC = () => {
 
   useEffect(() => { generateLevel(level); }, [level, generateLevel]);
 
-  const startStep = async () => {
+  // Updated to accept index to avoid stale closures
+  const startStep = async (stepIdx: number) => {
     if (isPreloadingLevel) return;
     setStatus(GameStatus.LISTENING);
     const config = LEVEL_CONFIGS.find(c => c.id === level)!;
-    const startIndex = currentStep * config.commandCountPerStep;
+    const startIndex = stepIdx * config.commandCountPerStep;
     const stepCommands = fullPath.slice(startIndex, startIndex + config.commandCountPerStep);
+    
     setCommandsForCurrentStep(stepCommands);
     setMovesMadeInStep(0);
     await playSequence(stepCommands);
@@ -132,6 +141,7 @@ const App: React.FC = () => {
   const executeMove = (inputDir: Direction) => {
     if (status !== GameStatus.MOVING) return;
     const expectedMove = commandsForCurrentStep[movesMadeInStep];
+    
     if (inputDir === expectedMove) {
       setPlayerPos(prev => {
         let { x, z, rotation } = prev;
@@ -141,14 +151,25 @@ const App: React.FC = () => {
         } else if (inputDir === Direction.LEFT) return { ...prev, rotation: rotation + TURN_ANGLE };
         else return { ...prev, rotation: rotation - TURN_ANGLE };
       });
+
       const nextMovesCount = movesMadeInStep + 1;
       setMovesMadeInStep(nextMovesCount);
+
       if (nextMovesCount === commandsForCurrentStep.length) {
         const config = LEVEL_CONFIGS.find(c => c.id === level)!;
-        if (currentStep + 1 === config.totalSteps) setTimeout(() => setStatus(GameStatus.SUCCESS), 500);
-        else { setCurrentStep(prev => prev + 1); setStatus(GameStatus.LISTENING); setTimeout(startStep, 800); }
+        if (currentStep + 1 === config.totalSteps) {
+          setTimeout(() => setStatus(GameStatus.SUCCESS), 500);
+        } else {
+          const nextIdx = currentStep + 1;
+          setCurrentStep(nextIdx);
+          setStatus(GameStatus.LISTENING);
+          // Small delay before automatically starting the next step audio
+          setTimeout(() => startStep(nextIdx), 800);
+        }
       }
-    } else setStatus(GameStatus.FAIL);
+    } else {
+      setStatus(GameStatus.FAIL);
+    }
   };
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -265,7 +286,7 @@ const App: React.FC = () => {
             <div className="text-8xl mb-6">🗺️</div>
             <h2 className="text-5xl font-black text-yellow-600 mb-4 italic">READY?</h2>
             <p className="text-xl text-gray-600 mb-10 font-bold max-w-xs">Listen to the directions and find the <span className="text-red-500">Red House</span>!</p>
-            <button onClick={startStep} className="bg-yellow-500 text-white font-black py-5 px-16 rounded-full text-3xl shadow-[0_10px_0_rgb(180,130,0)] active:translate-y-2 active:shadow-none transition-all">START!</button>
+            <button onClick={() => startStep(0)} className="bg-yellow-500 text-white font-black py-5 px-16 rounded-full text-3xl shadow-[0_10px_0_rgb(180,130,0)] active:translate-y-2 active:shadow-none transition-all">START!</button>
           </div>
         )}
         {status === GameStatus.LISTENING && (
