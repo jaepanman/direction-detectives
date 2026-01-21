@@ -17,19 +17,46 @@ const App: React.FC = () => {
   const [isPreloadingLevel, setIsPreloadingLevel] = useState(true);
   const [isReplaying, setIsReplaying] = useState(false);
 
+  // Cached Audio objects to prevent repeated loading and lag
+  const audioCache = useRef<Record<Direction, HTMLAudioElement | null>>({
+    [Direction.STRAIGHT]: null,
+    [Direction.LEFT]: null,
+    [Direction.RIGHT]: null
+  });
+
   const audioAvailability = useRef<Record<Direction, boolean>>({
     [Direction.STRAIGHT]: false,
     [Direction.LEFT]: false,
     [Direction.RIGHT]: false
   });
 
+  // Initialize audio on first user interaction to satisfy browser policy
+  const unlockAudio = useCallback(() => {
+    Object.entries(AUDIO_FILES).forEach(([dir, url]) => {
+      const direction = dir as Direction;
+      const audio = new Audio(url);
+      audio.load();
+      audioCache.current[direction] = audio;
+      
+      // Basic check if file exists/is reachable
+      audio.addEventListener('canplaythrough', () => {
+        audioAvailability.current[direction] = true;
+      }, { once: true });
+      
+      audio.addEventListener('error', () => {
+        console.warn(`Local audio for ${direction} failed to load, using TTS fallback.`);
+        audioAvailability.current[direction] = false;
+      }, { once: true });
+    });
+  }, []);
+
   const speakFallback = (text: string): Promise<void> => {
     return new Promise((resolve) => {
-      const timeout = setTimeout(resolve, 3000); 
+      const timeout = setTimeout(resolve, 2500); 
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'en-US';
-      utterance.rate = 0.8;
+      utterance.rate = 0.85;
       utterance.onend = () => { clearTimeout(timeout); resolve(); };
       utterance.onerror = () => { clearTimeout(timeout); resolve(); };
       window.speechSynthesis.speak(utterance);
@@ -37,20 +64,20 @@ const App: React.FC = () => {
   };
 
   const playAudioWithFallback = async (direction: Direction): Promise<void> => {
-    const url = AUDIO_FILES[direction];
+    const audio = audioCache.current[direction];
     const phrase = DIRECTION_PHRASES[direction];
 
-    if (!audioAvailability.current[direction]) {
+    if (!audio || !audioAvailability.current[direction]) {
       return speakFallback(phrase);
     }
 
     return new Promise((resolve) => {
-      const audio = new Audio(url);
       const safetyTimeout = setTimeout(() => {
-        console.warn(`Audio playback timed out for ${direction}`);
+        console.warn(`Audio playback timeout for ${direction}`);
         resolve();
-      }, 4000);
+      }, 3500);
 
+      audio.currentTime = 0;
       audio.onended = () => { clearTimeout(safetyTimeout); resolve(); };
       audio.onerror = () => {
         clearTimeout(safetyTimeout);
@@ -72,26 +99,8 @@ const App: React.FC = () => {
   const playSequence = async (commands: Direction[]) => {
     for (const cmd of commands) {
       await playAudioWithFallback(cmd);
-      await new Promise(r => setTimeout(r, 400));
+      await new Promise(r => setTimeout(r, 300));
     }
-  };
-
-  const checkAudioFiles = async () => {
-    const directions = [Direction.STRAIGHT, Direction.LEFT, Direction.RIGHT];
-    const checks = directions.map(dir => {
-      return new Promise<void>((resolve) => {
-        const audio = new Audio();
-        const timer = setTimeout(() => {
-          audioAvailability.current[dir] = false;
-          resolve();
-        }, 1000);
-        audio.addEventListener('canplaythrough', () => { clearTimeout(timer); audioAvailability.current[dir] = true; resolve(); }, { once: true });
-        audio.addEventListener('error', () => { clearTimeout(timer); audioAvailability.current[dir] = false; resolve(); }, { once: true });
-        audio.src = AUDIO_FILES[dir];
-        audio.load();
-      });
-    });
-    await Promise.all(checks);
   };
 
   const generateLevel = useCallback(async (lvl: number) => {
@@ -123,7 +132,6 @@ const App: React.FC = () => {
     setPlayerPos({ x: 0, z: 0, rotation: 0 });
     setCurrentStep(0);
     setMovesMadeInStep(0);
-    await Promise.all([checkAudioFiles(), new Promise(r => setTimeout(r, 500))]);
     setIsPreloadingLevel(false);
   }, []);
 
@@ -132,6 +140,9 @@ const App: React.FC = () => {
   const startStep = useCallback(async (stepIdx: number) => {
     if (isPreloadingLevel) return;
     
+    // Unlock audio context if not already done
+    if (!audioCache.current[Direction.STRAIGHT]) unlockAudio();
+
     const config = LEVEL_CONFIGS.find(c => c.id === level)!;
     const startIndex = stepIdx * config.commandCountPerStep;
     const stepCommands = fullPath.slice(startIndex, startIndex + config.commandCountPerStep);
@@ -143,11 +154,11 @@ const App: React.FC = () => {
     try {
       await playSequence(stepCommands);
     } catch (err) {
-      console.error("Audio sequence failed", err);
+      console.error("Audio error:", err);
     } finally {
       setStatus(GameStatus.MOVING);
     }
-  }, [level, fullPath, isPreloadingLevel]);
+  }, [level, fullPath, isPreloadingLevel, unlockAudio]);
 
   const executeMove = useCallback((inputDir: Direction) => {
     if (status !== GameStatus.MOVING) return;
@@ -174,6 +185,7 @@ const App: React.FC = () => {
         } else {
           const nextIdx = currentStep + 1;
           setCurrentStep(nextIdx);
+          // Auto-trigger next step listening
           setTimeout(() => startStep(nextIdx), 600);
         }
       }
@@ -232,7 +244,7 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      {/* Command Sequence Indicator */}
+      {/* Command Sequence Indicator (Slots) */}
       {(status === GameStatus.MOVING || status === GameStatus.LISTENING) && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-white/90 p-4 rounded-[40px] shadow-2xl backdrop-blur-md border-2 border-white z-10">
           {commandsForCurrentStep.map((cmd, idx) => {
@@ -296,13 +308,13 @@ const App: React.FC = () => {
         {isPreloadingLevel && (
           <div className="bg-white/90 p-12 rounded-[50px] shadow-2xl flex flex-col items-center">
             <div className="w-20 h-20 border-8 border-green-200 border-t-green-600 rounded-full animate-spin mb-6"></div>
-            <h2 className="text-3xl font-black text-green-800 italic">Building Town...</h2>
+            <h2 className="text-3xl font-black text-green-800 italic uppercase">Building Town...</h2>
           </div>
         )}
         {status === GameStatus.START && !isPreloadingLevel && (
           <div className="bg-white p-12 rounded-[50px] shadow-2xl border-8 border-yellow-400 text-center pointer-events-auto transform hover:scale-105 transition-transform">
             <div className="text-8xl mb-6">🗺️</div>
-            <h2 className="text-5xl font-black text-yellow-600 mb-4 italic">READY?</h2>
+            <h2 className="text-5xl font-black text-yellow-600 mb-4 italic uppercase">READY?</h2>
             <p className="text-xl text-gray-600 mb-10 font-bold max-w-xs">Listen to the directions and find the <span className="text-red-500">Red House</span>!</p>
             <button onClick={() => startStep(0)} className="bg-yellow-500 text-white font-black py-5 px-16 rounded-full text-3xl shadow-[0_10px_0_rgb(180,130,0)] active:translate-y-2 active:shadow-none transition-all">START!</button>
           </div>
@@ -316,17 +328,17 @@ const App: React.FC = () => {
         {status === GameStatus.SUCCESS && (
           <div className="bg-white p-12 rounded-[50px] shadow-2xl border-8 border-green-400 text-center pointer-events-auto">
             <div className="text-8xl mb-6">🏆</div>
-            <h2 className="text-5xl font-black text-green-600 mb-4">AMAZING!</h2>
+            <h2 className="text-5xl font-black text-green-600 mb-4 uppercase">AMAZING!</h2>
             <p className="text-xl text-gray-500 mb-10 font-bold italic">You found the Red House!</p>
-            <button onClick={nextLevel} className="bg-green-500 text-white font-black py-5 px-16 rounded-full text-3xl shadow-[0_10px_0_rgb(20,100,20)] active:translate-y-2 active:shadow-none transition-all">NEXT LEVEL</button>
+            <button onClick={nextLevel} className="bg-green-500 text-white font-black py-5 px-16 rounded-full text-3xl shadow-[0_10px_0_rgb(20,100,20)] active:translate-y-2 active:shadow-none transition-all uppercase">NEXT LEVEL</button>
           </div>
         )}
         {status === GameStatus.FAIL && (
           <div className="bg-white p-12 rounded-[50px] shadow-2xl border-8 border-red-400 text-center pointer-events-auto">
             <div className="text-8xl mb-6">😵</div>
-            <h2 className="text-5xl font-black text-red-600 mb-4">OH NO!</h2>
+            <h2 className="text-5xl font-black text-red-600 mb-4 uppercase">OH NO!</h2>
             <p className="text-xl text-gray-500 mb-10 font-bold">Try one more time!</p>
-            <button onClick={() => generateLevel(level)} className="bg-red-500 text-white font-black py-5 px-16 rounded-full text-3xl shadow-[0_10px_0_rgb(150,20,20)] active:translate-y-2 active:shadow-none transition-all">RETRY</button>
+            <button onClick={() => generateLevel(level)} className="bg-red-500 text-white font-black py-5 px-16 rounded-full text-3xl shadow-[0_10px_0_rgb(150,20,20)] active:translate-y-2 active:shadow-none transition-all uppercase">RETRY</button>
           </div>
         )}
       </div>
