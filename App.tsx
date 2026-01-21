@@ -25,12 +25,13 @@ const App: React.FC = () => {
 
   const speakFallback = (text: string): Promise<void> => {
     return new Promise((resolve) => {
+      const timeout = setTimeout(resolve, 3000); // Safety timeout for TTS
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'en-US';
-      utterance.rate = 0.75;
-      utterance.onend = () => resolve();
-      utterance.onerror = () => resolve();
+      utterance.rate = 0.8;
+      utterance.onend = () => { clearTimeout(timeout); resolve(); };
+      utterance.onerror = () => { clearTimeout(timeout); resolve(); };
       window.speechSynthesis.speak(utterance);
     });
   };
@@ -45,8 +46,14 @@ const App: React.FC = () => {
 
     return new Promise((resolve) => {
       const audio = new Audio(url);
-      audio.onended = () => resolve();
+      const safetyTimeout = setTimeout(() => {
+        console.warn(`Audio playback timed out for ${direction}`);
+        resolve();
+      }, 4000);
+
+      audio.onended = () => { clearTimeout(safetyTimeout); resolve(); };
       audio.onerror = () => {
+        clearTimeout(safetyTimeout);
         audioAvailability.current[direction] = false;
         speakFallback(phrase).then(resolve);
       };
@@ -54,6 +61,7 @@ const App: React.FC = () => {
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch(() => {
+          clearTimeout(safetyTimeout);
           audioAvailability.current[direction] = false;
           speakFallback(phrase).then(resolve);
         });
@@ -64,7 +72,7 @@ const App: React.FC = () => {
   const playSequence = async (commands: Direction[]) => {
     for (const cmd of commands) {
       await playAudioWithFallback(cmd);
-      await new Promise(r => setTimeout(r, 600));
+      await new Promise(r => setTimeout(r, 400));
     }
   };
 
@@ -76,7 +84,7 @@ const App: React.FC = () => {
         const timer = setTimeout(() => {
           audioAvailability.current[dir] = false;
           resolve();
-        }, 1500);
+        }, 1000);
         audio.addEventListener('canplaythrough', () => { clearTimeout(timer); audioAvailability.current[dir] = true; resolve(); }, { once: true });
         audio.addEventListener('error', () => { clearTimeout(timer); audioAvailability.current[dir] = false; resolve(); }, { once: true });
         audio.src = AUDIO_FILES[dir];
@@ -93,7 +101,6 @@ const App: React.FC = () => {
     const config = LEVEL_CONFIGS.find(c => c.id === lvl) || LEVEL_CONFIGS[0];
     const path: Direction[] = [];
     let simX = 0, simZ = 0, simRot = 0;
-
     const totalMovesNeeded = config.totalSteps * config.commandCountPerStep;
 
     for (let i = 0; i < totalMovesNeeded; i++) {
@@ -116,27 +123,31 @@ const App: React.FC = () => {
     setPlayerPos({ x: 0, z: 0, rotation: 0 });
     setCurrentStep(0);
     setMovesMadeInStep(0);
-    await Promise.all([checkAudioFiles(), new Promise(r => setTimeout(r, 1000))]);
+    await Promise.all([checkAudioFiles(), new Promise(r => setTimeout(r, 500))]);
     setIsPreloadingLevel(false);
   }, []);
 
   useEffect(() => { generateLevel(level); }, [level, generateLevel]);
 
-  const startStep = async (stepIdx: number) => {
+  const startStep = useCallback(async (stepIdx: number) => {
     if (isPreloadingLevel) return;
-    setStatus(GameStatus.LISTENING);
+    
     const config = LEVEL_CONFIGS.find(c => c.id === level)!;
     const startIndex = stepIdx * config.commandCountPerStep;
     const stepCommands = fullPath.slice(startIndex, startIndex + config.commandCountPerStep);
     
+    // Set visual state before audio starts
     setCommandsForCurrentStep(stepCommands);
     setMovesMadeInStep(0);
+    setStatus(GameStatus.LISTENING);
+    
     await playSequence(stepCommands);
     setStatus(GameStatus.MOVING);
-  };
+  }, [level, fullPath, isPreloadingLevel]);
 
-  const executeMove = (inputDir: Direction) => {
+  const executeMove = useCallback((inputDir: Direction) => {
     if (status !== GameStatus.MOVING) return;
+    
     const expectedMove = commandsForCurrentStep[movesMadeInStep];
     
     if (inputDir === expectedMove) {
@@ -155,24 +166,25 @@ const App: React.FC = () => {
       if (nextMovesCount === commandsForCurrentStep.length) {
         const config = LEVEL_CONFIGS.find(c => c.id === level)!;
         if (currentStep + 1 === config.totalSteps) {
-          setTimeout(() => setStatus(GameStatus.SUCCESS), 500);
+          setTimeout(() => setStatus(GameStatus.SUCCESS), 400);
         } else {
           const nextIdx = currentStep + 1;
           setCurrentStep(nextIdx);
           setStatus(GameStatus.LISTENING);
-          setTimeout(() => startStep(nextIdx), 800);
+          setTimeout(() => startStep(nextIdx), 600);
         }
       }
     } else {
       setStatus(GameStatus.FAIL);
     }
-  };
+  }, [status, commandsForCurrentStep, movesMadeInStep, level, currentStep, startStep]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (status !== GameStatus.MOVING) return;
     if (e.key === 'ArrowUp') executeMove(Direction.STRAIGHT);
     else if (e.key === 'ArrowLeft') executeMove(Direction.LEFT);
     else if (e.key === 'ArrowRight') executeMove(Direction.RIGHT);
-  }, [status, commandsForCurrentStep, movesMadeInStep]);
+  }, [status, executeMove]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
@@ -217,12 +229,13 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      {/* Command Sequence Indicator (Visual Feedback for Steps) */}
+      {/* Command Sequence Indicator */}
       {(status === GameStatus.MOVING || status === GameStatus.LISTENING) && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-white/80 p-4 rounded-[40px] shadow-2xl backdrop-blur-md border-2 border-white">
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-white/90 p-4 rounded-[40px] shadow-2xl backdrop-blur-md border-2 border-white z-10">
           {commandsForCurrentStep.map((cmd, idx) => {
             const isDone = idx < movesMadeInStep;
             const isCurrent = idx === movesMadeInStep && status === GameStatus.MOVING;
+            const isWaiting = idx === movesMadeInStep && status === GameStatus.LISTENING;
             
             return (
               <div 
@@ -230,7 +243,7 @@ const App: React.FC = () => {
                 className={`
                   w-14 h-14 rounded-full flex items-center justify-center text-2xl transition-all duration-300 transform
                   ${isDone ? 'bg-green-500 text-white scale-110 shadow-lg' : 
-                    isCurrent ? 'bg-blue-500 text-white scale-125 animate-pulse shadow-xl border-4 border-blue-200' : 
+                    (isCurrent || isWaiting) ? 'bg-blue-500 text-white scale-125 animate-pulse shadow-xl border-4 border-blue-200' : 
                     'bg-gray-200 text-gray-400 opacity-50'}
                 `}
               >
@@ -246,40 +259,40 @@ const App: React.FC = () => {
       )}
 
       {/* Help Toggle */}
-      <button onClick={() => setShowHelp(true)} className="absolute bottom-4 left-4 w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-blue-500 border-2 border-blue-200 active:scale-90 transition-all">
+      <button onClick={() => setShowHelp(true)} className="absolute bottom-4 left-4 w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-blue-500 border-2 border-blue-200 active:scale-90 transition-all z-10">
         <i className="fas fa-question text-xl"></i>
       </button>
 
       {/* On-Screen Controls */}
       {status === GameStatus.MOVING && (
-        <div className="absolute bottom-10 left-0 w-full flex justify-center items-end gap-4 px-4">
+        <div className="absolute bottom-10 left-0 w-full flex justify-center items-end gap-4 px-4 z-20 animate-in fade-in slide-in-from-bottom-4 duration-300">
           <button onClick={() => executeMove(Direction.LEFT)} className="w-24 h-24 bg-blue-500 rounded-3xl border-b-[10px] border-blue-700 flex flex-col items-center justify-center active:translate-y-2 active:border-b-0 transition-all text-white shadow-lg">
             <i className="fas fa-arrow-left text-4xl mb-1"></i>
-            <span className="text-[10px] font-black uppercase">Turn Left</span>
+            <span className="text-[10px] font-black uppercase tracking-tight">Turn Left</span>
           </button>
           <button onClick={() => executeMove(Direction.STRAIGHT)} className="w-32 h-32 bg-green-500 rounded-3xl border-b-[10px] border-green-700 flex flex-col items-center justify-center active:translate-y-2 active:border-b-0 transition-all text-white shadow-lg">
             <i className="fas fa-arrow-up text-5xl mb-1"></i>
-            <span className="text-sm font-black uppercase">Straight</span>
+            <span className="text-sm font-black uppercase tracking-tight">Straight</span>
           </button>
           <button onClick={() => executeMove(Direction.RIGHT)} className="w-24 h-24 bg-blue-500 rounded-3xl border-b-[10px] border-blue-700 flex flex-col items-center justify-center active:translate-y-2 active:border-b-0 transition-all text-white shadow-lg">
             <i className="fas fa-arrow-right text-4xl mb-1"></i>
-            <span className="text-[10px] font-black uppercase">Turn Right</span>
+            <span className="text-[10px] font-black uppercase tracking-tight">Turn Right</span>
           </button>
         </div>
       )}
 
       {/* Replay Audio */}
       {status === GameStatus.MOVING && (
-        <button onClick={replayStepAudio} disabled={isReplaying} className={`absolute top-4 right-4 w-20 h-20 bg-yellow-400 rounded-full border-b-4 border-yellow-600 flex flex-col items-center justify-center active:scale-90 transition-all shadow-lg ${isReplaying ? 'opacity-50 grayscale' : ''}`}>
+        <button onClick={replayStepAudio} disabled={isReplaying} className={`absolute top-4 right-4 w-20 h-20 bg-yellow-400 rounded-full border-b-4 border-yellow-600 flex flex-col items-center justify-center active:scale-90 transition-all shadow-lg z-10 ${isReplaying ? 'opacity-50 grayscale' : ''}`}>
           <i className="fas fa-volume-up text-3xl text-yellow-900"></i>
           <span className="text-[8px] font-black uppercase text-yellow-900 mt-1">Listen Again</span>
         </button>
       )}
 
       {/* Status Overlays */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[100]">
         {isPreloadingLevel && (
-          <div className="bg-white/90 p-12 rounded-[50px] shadow-2xl flex flex-col items-center z-50">
+          <div className="bg-white/90 p-12 rounded-[50px] shadow-2xl flex flex-col items-center">
             <div className="w-20 h-20 border-8 border-green-200 border-t-green-600 rounded-full animate-spin mb-6"></div>
             <h2 className="text-3xl font-black text-green-800 italic">Building Town...</h2>
           </div>
@@ -293,9 +306,9 @@ const App: React.FC = () => {
           </div>
         )}
         {status === GameStatus.LISTENING && (
-          <div className="bg-white/95 p-12 rounded-full shadow-2xl border-4 border-blue-400 animate-bounce flex flex-col items-center">
-            <i className="fas fa-ear-listen text-7xl text-blue-500 mb-4"></i>
-            <span className="text-4xl font-black text-blue-800 uppercase italic">Listen...</span>
+          <div className="bg-white/80 p-10 rounded-full shadow-2xl border-4 border-blue-400 animate-bounce flex flex-col items-center backdrop-blur-sm">
+            <i className="fas fa-ear-listen text-6xl text-blue-500 mb-2"></i>
+            <span className="text-3xl font-black text-blue-800 uppercase italic">Listen...</span>
           </div>
         )}
         {status === GameStatus.SUCCESS && (
@@ -318,7 +331,7 @@ const App: React.FC = () => {
 
       {/* Help Modal */}
       {showHelp && (
-        <div className="absolute inset-0 bg-black/60 z-[100] flex items-center justify-center p-6 backdrop-blur-sm" onClick={() => setShowHelp(false)}>
+        <div className="absolute inset-0 bg-black/60 z-[200] flex items-center justify-center p-6 backdrop-blur-sm" onClick={() => setShowHelp(false)}>
           <div className="bg-white p-8 rounded-[40px] max-w-md w-full shadow-2xl border-4 border-blue-400" onClick={e => e.stopPropagation()}>
             <h2 className="text-3xl font-black text-blue-600 mb-4 text-center uppercase italic">Teacher Tips</h2>
             <div className="space-y-4 text-gray-700">
