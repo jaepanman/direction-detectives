@@ -94,7 +94,6 @@ const App: React.FC = () => {
     const path: Direction[] = [];
     let simX = 0, simZ = 0, simRot = 0;
 
-    // FIX: Generate enough moves for ALL steps (steps * commands per step)
     const totalMovesNeeded = config.totalSteps * config.commandCountPerStep;
 
     for (let i = 0; i < totalMovesNeeded; i++) {
@@ -110,7 +109,6 @@ const App: React.FC = () => {
     }
 
     setFullPath(path);
-    // Standardize to grid coordinate then add offset to center in a building lot
     const finalX = Math.round(simX / GRID_SIZE) * GRID_SIZE;
     const finalZ = Math.round(simZ / GRID_SIZE) * GRID_SIZE;
     setTargetPos({ x: finalX + 2.5, z: finalZ + 2.5 });
@@ -124,7 +122,6 @@ const App: React.FC = () => {
 
   useEffect(() => { generateLevel(level); }, [level, generateLevel]);
 
-  // Updated to accept index to avoid stale closures
   const startStep = async (stepIdx: number) => {
     if (isPreloadingLevel) return;
     setStatus(GameStatus.LISTENING);
@@ -163,7 +160,6 @@ const App: React.FC = () => {
           const nextIdx = currentStep + 1;
           setCurrentStep(nextIdx);
           setStatus(GameStatus.LISTENING);
-          // Small delay before automatically starting the next step audio
           setTimeout(() => startStep(nextIdx), 800);
         }
       }
@@ -194,6 +190,12 @@ const App: React.FC = () => {
 
   const currentConfig = LEVEL_CONFIGS.find(c => c.id === level)!;
 
+  const getDirectionIcon = (dir: Direction) => {
+    if (dir === Direction.STRAIGHT) return 'fa-arrow-up';
+    if (dir === Direction.LEFT) return 'fa-arrow-left';
+    return 'fa-arrow-right';
+  };
+
   return (
     <div className="relative w-screen h-screen overflow-hidden select-none bg-[#f0fdf4] font-sans">
       <Town playerPos={playerPos} targetPos={targetPos} status={status} />
@@ -207,7 +209,7 @@ const App: React.FC = () => {
           </div>
           <div className="text-[10px] font-bold text-green-600 uppercase tracking-widest mb-2 flex justify-between">
             <span>Step {currentStep + 1} / {currentConfig.totalSteps}</span>
-            <span>{movesMadeInStep} / {commandsForCurrentStep.length} moves</span>
+            <span className="text-blue-600">Task: {currentConfig.commandCountPerStep} moves</span>
           </div>
           <div className="w-full bg-gray-200 h-3 rounded-full overflow-hidden border border-gray-300">
             <div className="bg-green-500 h-full transition-all duration-500" style={{ width: `${((currentStep) / currentConfig.totalSteps) * 100}%` }} />
@@ -215,34 +217,38 @@ const App: React.FC = () => {
         </div>
       </div>
 
+      {/* Command Sequence Indicator (Visual Feedback for Steps) */}
+      {(status === GameStatus.MOVING || status === GameStatus.LISTENING) && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-white/80 p-4 rounded-[40px] shadow-2xl backdrop-blur-md border-2 border-white">
+          {commandsForCurrentStep.map((cmd, idx) => {
+            const isDone = idx < movesMadeInStep;
+            const isCurrent = idx === movesMadeInStep && status === GameStatus.MOVING;
+            
+            return (
+              <div 
+                key={idx}
+                className={`
+                  w-14 h-14 rounded-full flex items-center justify-center text-2xl transition-all duration-300 transform
+                  ${isDone ? 'bg-green-500 text-white scale-110 shadow-lg' : 
+                    isCurrent ? 'bg-blue-500 text-white scale-125 animate-pulse shadow-xl border-4 border-blue-200' : 
+                    'bg-gray-200 text-gray-400 opacity-50'}
+                `}
+              >
+                {isDone ? (
+                  <i className={`fas ${getDirectionIcon(cmd)}`}></i>
+                ) : (
+                  <span className="font-black">?</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Help Toggle */}
       <button onClick={() => setShowHelp(true)} className="absolute bottom-4 left-4 w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-blue-500 border-2 border-blue-200 active:scale-90 transition-all">
         <i className="fas fa-question text-xl"></i>
       </button>
-
-      {/* Help Modal */}
-      {showHelp && (
-        <div className="absolute inset-0 bg-black/60 z-[100] flex items-center justify-center p-6 backdrop-blur-sm" onClick={() => setShowHelp(false)}>
-          <div className="bg-white p-8 rounded-[40px] max-w-md w-full shadow-2xl border-4 border-blue-400" onClick={e => e.stopPropagation()}>
-            <h2 className="text-3xl font-black text-blue-600 mb-4 text-center">HOW TO PLAY</h2>
-            <div className="space-y-4 text-gray-700">
-              <div className="flex items-center gap-4 bg-green-50 p-3 rounded-2xl">
-                <i className="fas fa-ear-listen text-2xl text-green-500"></i>
-                <p className="font-bold">1. Listen to the teacher's voice.</p>
-              </div>
-              <div className="flex items-center gap-4 bg-blue-50 p-3 rounded-2xl">
-                <i className="fas fa-hand-pointer text-2xl text-blue-500"></i>
-                <p className="font-bold">2. Press the buttons in order.</p>
-              </div>
-              <div className="flex items-center gap-4 bg-red-50 p-3 rounded-2xl">
-                <i className="fas fa-home text-2xl text-red-500"></i>
-                <p className="font-bold">3. Find the Red House!</p>
-              </div>
-            </div>
-            <button onClick={() => setShowHelp(false)} className="w-full mt-6 bg-blue-500 text-white font-black py-4 rounded-full text-xl shadow-lg active:translate-y-1">CLOSE</button>
-          </div>
-        </div>
-      )}
 
       {/* On-Screen Controls */}
       {status === GameStatus.MOVING && (
@@ -250,17 +256,14 @@ const App: React.FC = () => {
           <button onClick={() => executeMove(Direction.LEFT)} className="w-24 h-24 bg-blue-500 rounded-3xl border-b-[10px] border-blue-700 flex flex-col items-center justify-center active:translate-y-2 active:border-b-0 transition-all text-white shadow-lg">
             <i className="fas fa-arrow-left text-4xl mb-1"></i>
             <span className="text-[10px] font-black uppercase">Turn Left</span>
-            <span className="text-[8px] opacity-90 italic">Hidari</span>
           </button>
           <button onClick={() => executeMove(Direction.STRAIGHT)} className="w-32 h-32 bg-green-500 rounded-3xl border-b-[10px] border-green-700 flex flex-col items-center justify-center active:translate-y-2 active:border-b-0 transition-all text-white shadow-lg">
             <i className="fas fa-arrow-up text-5xl mb-1"></i>
             <span className="text-sm font-black uppercase">Straight</span>
-            <span className="text-[10px] opacity-90 italic">Massugu</span>
           </button>
           <button onClick={() => executeMove(Direction.RIGHT)} className="w-24 h-24 bg-blue-500 rounded-3xl border-b-[10px] border-blue-700 flex flex-col items-center justify-center active:translate-y-2 active:border-b-0 transition-all text-white shadow-lg">
             <i className="fas fa-arrow-right text-4xl mb-1"></i>
             <span className="text-[10px] font-black uppercase">Turn Right</span>
-            <span className="text-[8px] opacity-90 italic">Migi</span>
           </button>
         </div>
       )}
@@ -312,6 +315,30 @@ const App: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Help Modal */}
+      {showHelp && (
+        <div className="absolute inset-0 bg-black/60 z-[100] flex items-center justify-center p-6 backdrop-blur-sm" onClick={() => setShowHelp(false)}>
+          <div className="bg-white p-8 rounded-[40px] max-w-md w-full shadow-2xl border-4 border-blue-400" onClick={e => e.stopPropagation()}>
+            <h2 className="text-3xl font-black text-blue-600 mb-4 text-center uppercase italic">Teacher Tips</h2>
+            <div className="space-y-4 text-gray-700">
+              <div className="flex items-center gap-4 bg-green-50 p-3 rounded-2xl">
+                <i className="fas fa-ear-listen text-2xl text-green-500"></i>
+                <p className="font-bold">1. Listen for "Straight", "Left", or "Right".</p>
+              </div>
+              <div className="flex items-center gap-4 bg-blue-50 p-3 rounded-2xl">
+                <i className="fas fa-hand-pointer text-2xl text-blue-500"></i>
+                <p className="font-bold">2. Look at the <span className="text-blue-600">?</span> circles for move count!</p>
+              </div>
+              <div className="flex items-center gap-4 bg-red-50 p-3 rounded-2xl">
+                <i className="fas fa-home text-2xl text-red-500"></i>
+                <p className="font-bold">3. Find the Red House to win!</p>
+              </div>
+            </div>
+            <button onClick={() => setShowHelp(false)} className="w-full mt-6 bg-blue-500 text-white font-black py-4 rounded-full text-xl shadow-lg active:translate-y-1">OK!</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
