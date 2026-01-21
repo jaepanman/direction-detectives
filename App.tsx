@@ -25,7 +25,7 @@ const App: React.FC = () => {
 
   const speakFallback = (text: string): Promise<void> => {
     return new Promise((resolve) => {
-      const timeout = setTimeout(resolve, 3000); // Safety timeout for TTS
+      const timeout = setTimeout(resolve, 3000); 
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'en-US';
@@ -136,13 +136,17 @@ const App: React.FC = () => {
     const startIndex = stepIdx * config.commandCountPerStep;
     const stepCommands = fullPath.slice(startIndex, startIndex + config.commandCountPerStep);
     
-    // Set visual state before audio starts
     setCommandsForCurrentStep(stepCommands);
     setMovesMadeInStep(0);
     setStatus(GameStatus.LISTENING);
     
-    await playSequence(stepCommands);
-    setStatus(GameStatus.MOVING);
+    try {
+      await playSequence(stepCommands);
+    } catch (err) {
+      console.error("Audio sequence failed", err);
+    } finally {
+      setStatus(GameStatus.MOVING);
+    }
   }, [level, fullPath, isPreloadingLevel]);
 
   const executeMove = useCallback((inputDir: Direction) => {
@@ -170,7 +174,6 @@ const App: React.FC = () => {
         } else {
           const nextIdx = currentStep + 1;
           setCurrentStep(nextIdx);
-          setStatus(GameStatus.LISTENING);
           setTimeout(() => startStep(nextIdx), 600);
         }
       }
@@ -221,7 +224,7 @@ const App: React.FC = () => {
           </div>
           <div className="text-[10px] font-bold text-green-600 uppercase tracking-widest mb-2 flex justify-between">
             <span>Step {currentStep + 1} / {currentConfig.totalSteps}</span>
-            <span className="text-blue-600">Task: {currentConfig.commandCountPerStep} moves</span>
+            <span className="text-blue-600">{currentConfig.commandCountPerStep} moves</span>
           </div>
           <div className="w-full bg-gray-200 h-3 rounded-full overflow-hidden border border-gray-300">
             <div className="bg-green-500 h-full transition-all duration-500" style={{ width: `${((currentStep) / currentConfig.totalSteps) * 100}%` }} />
@@ -234,8 +237,7 @@ const App: React.FC = () => {
         <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-white/90 p-4 rounded-[40px] shadow-2xl backdrop-blur-md border-2 border-white z-10">
           {commandsForCurrentStep.map((cmd, idx) => {
             const isDone = idx < movesMadeInStep;
-            const isCurrent = idx === movesMadeInStep && status === GameStatus.MOVING;
-            const isWaiting = idx === movesMadeInStep && status === GameStatus.LISTENING;
+            const isCurrent = idx === movesMadeInStep;
             
             return (
               <div 
@@ -243,7 +245,7 @@ const App: React.FC = () => {
                 className={`
                   w-14 h-14 rounded-full flex items-center justify-center text-2xl transition-all duration-300 transform
                   ${isDone ? 'bg-green-500 text-white scale-110 shadow-lg' : 
-                    (isCurrent || isWaiting) ? 'bg-blue-500 text-white scale-125 animate-pulse shadow-xl border-4 border-blue-200' : 
+                    isCurrent ? 'bg-blue-500 text-white scale-125 animate-pulse shadow-xl border-4 border-blue-200' : 
                     'bg-gray-200 text-gray-400 opacity-50'}
                 `}
               >
@@ -265,7 +267,7 @@ const App: React.FC = () => {
 
       {/* On-Screen Controls */}
       {status === GameStatus.MOVING && (
-        <div className="absolute bottom-10 left-0 w-full flex justify-center items-end gap-4 px-4 z-20 animate-in fade-in slide-in-from-bottom-4 duration-300">
+        <div className="absolute bottom-10 left-0 w-full flex justify-center items-end gap-4 px-4 z-20">
           <button onClick={() => executeMove(Direction.LEFT)} className="w-24 h-24 bg-blue-500 rounded-3xl border-b-[10px] border-blue-700 flex flex-col items-center justify-center active:translate-y-2 active:border-b-0 transition-all text-white shadow-lg">
             <i className="fas fa-arrow-left text-4xl mb-1"></i>
             <span className="text-[10px] font-black uppercase tracking-tight">Turn Left</span>
@@ -315,7 +317,7 @@ const App: React.FC = () => {
           <div className="bg-white p-12 rounded-[50px] shadow-2xl border-8 border-green-400 text-center pointer-events-auto">
             <div className="text-8xl mb-6">🏆</div>
             <h2 className="text-5xl font-black text-green-600 mb-4">AMAZING!</h2>
-            <p className="text-xl text-gray-500 mb-10 font-bold italic">You are a Direction Detective!</p>
+            <p className="text-xl text-gray-500 mb-10 font-bold italic">You found the Red House!</p>
             <button onClick={nextLevel} className="bg-green-500 text-white font-black py-5 px-16 rounded-full text-3xl shadow-[0_10px_0_rgb(20,100,20)] active:translate-y-2 active:shadow-none transition-all">NEXT LEVEL</button>
           </div>
         )}
@@ -333,22 +335,22 @@ const App: React.FC = () => {
       {showHelp && (
         <div className="absolute inset-0 bg-black/60 z-[200] flex items-center justify-center p-6 backdrop-blur-sm" onClick={() => setShowHelp(false)}>
           <div className="bg-white p-8 rounded-[40px] max-w-md w-full shadow-2xl border-4 border-blue-400" onClick={e => e.stopPropagation()}>
-            <h2 className="text-3xl font-black text-blue-600 mb-4 text-center uppercase italic">Teacher Tips</h2>
+            <h2 className="text-3xl font-black text-blue-600 mb-4 text-center uppercase italic">Instructions</h2>
             <div className="space-y-4 text-gray-700">
               <div className="flex items-center gap-4 bg-green-50 p-3 rounded-2xl">
                 <i className="fas fa-ear-listen text-2xl text-green-500"></i>
-                <p className="font-bold">1. Listen for "Straight", "Left", or "Right".</p>
+                <p className="font-bold">1. Listen to the voice.</p>
               </div>
               <div className="flex items-center gap-4 bg-blue-50 p-3 rounded-2xl">
                 <i className="fas fa-hand-pointer text-2xl text-blue-500"></i>
-                <p className="font-bold">2. Look at the <span className="text-blue-600">?</span> circles for move count!</p>
+                <p className="font-bold">2. Use Arrows or Buttons to move.</p>
               </div>
               <div className="flex items-center gap-4 bg-red-50 p-3 rounded-2xl">
                 <i className="fas fa-home text-2xl text-red-500"></i>
-                <p className="font-bold">3. Find the Red House to win!</p>
+                <p className="font-bold">3. Reach the <span className="text-red-600">Red House</span>!</p>
               </div>
             </div>
-            <button onClick={() => setShowHelp(false)} className="w-full mt-6 bg-blue-500 text-white font-black py-4 rounded-full text-xl shadow-lg active:translate-y-1">OK!</button>
+            <button onClick={() => setShowHelp(false)} className="w-full mt-6 bg-blue-500 text-white font-black py-4 rounded-full text-xl shadow-lg active:translate-y-1">GOT IT!</button>
           </div>
         </div>
       )}
